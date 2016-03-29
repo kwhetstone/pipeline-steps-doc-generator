@@ -7,10 +7,20 @@ import hudson.security.ACL;
 import jenkins.InitReactorRunner;
 import org.acegisecurity.context.SecurityContextHolder;
 import org.apache.commons.io.FileUtils;
+import org.jenkinsci.plugins.structs.describable.ArrayType;
+import org.jenkinsci.plugins.structs.describable.AtomicType;
+import org.jenkinsci.plugins.structs.describable.DescribableModel;
+import org.jenkinsci.plugins.structs.describable.DescribableParameter;
+import org.jenkinsci.plugins.structs.describable.EnumType;
+import org.jenkinsci.plugins.structs.describable.ErrorType;
+import org.jenkinsci.plugins.structs.describable.HeterogeneousObjectType;
+import org.jenkinsci.plugins.structs.describable.HomogeneousObjectType;
+import org.jenkinsci.plugins.structs.describable.ParameterType;
 import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
-import org.jenkinsci.plugins.workflow.structs.DescribableHelper;
-import org.jvnet.hudson.reactor.*;
-import org.kohsuke.args4j.Argument;
+import org.jvnet.hudson.reactor.Reactor;
+import org.jvnet.hudson.reactor.ReactorException;
+import org.jvnet.hudson.reactor.Task;
+import org.jvnet.hudson.reactor.TaskBuilder;
 import org.kohsuke.args4j.CmdLineParser;
 import org.kohsuke.args4j.Option;
 
@@ -22,8 +32,8 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.List;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
 
@@ -33,7 +43,7 @@ import java.util.TreeSet;
 public class PipelineStepExtractor {
     @Option(name="-homeDir",usage="Root directory of the plugin folder.  This serves as the root directory of the PluginManager.")
     public String homeDir = null;
-    
+
     public static void main(String[] args){
         PipelineStepExtractor pse = new PipelineStepExtractor();
         try{
@@ -186,30 +196,30 @@ public class PipelineStepExtractor {
         return "====\n"+stripDiv(help)+"\n====\n";
     }
 
-    private String describeType(DescribableHelper.ParameterType type, int headerLevel) throws Exception {
+    private String describeType(ParameterType type, int headerLevel) throws Exception {
         String typeInfo = "";
         int nextHeaderLevel = Math.min(6, headerLevel + 1);
-        if (type instanceof DescribableHelper.AtomicType) {
+        if (type instanceof AtomicType) {
             typeInfo += "*Type:* "+type+"\n";
-        } else if (type instanceof DescribableHelper.EnumType) {
+        } else if (type instanceof EnumType) {
             typeInfo += "*Values:*\n";
-            for (String v : ((DescribableHelper.EnumType) type).getValues()) {
+            for (String v : ((EnumType) type).getValues()) {
                 typeInfo += "* +"+v+"+\n";
             }
-        } else if (type instanceof DescribableHelper.ArrayType) {
+        } else if (type instanceof ArrayType) {
             typeInfo += "*Array/List*\n";
-            typeInfo +=  describeType(((DescribableHelper.ArrayType) type).getElementType(), headerLevel);
-        } else if (type instanceof DescribableHelper.HomogeneousObjectType) {
+            typeInfo +=  describeType(((ArrayType) type).getElementType(), headerLevel);
+        } else if (type instanceof HomogeneousObjectType) {
             typeInfo += "Nested Object\n";
-            typeInfo += generateHelp(((DescribableHelper.HomogeneousObjectType) type).getSchemaType(), nextHeaderLevel);
-        } else if (type instanceof DescribableHelper.HeterogeneousObjectType) {
+            typeInfo += generateHelp(((HomogeneousObjectType) type).getSchemaType(), nextHeaderLevel);
+        } else if (type instanceof HeterogeneousObjectType) {
             typeInfo += "Nested Choice of Objects\n";
-            for (Map.Entry<String, DescribableHelper.Schema> entry : ((DescribableHelper.HeterogeneousObjectType) type).getTypes().entrySet()) {
-                typeInfo += "+"+DescribableHelper.CLAZZ+": '"+entry.getKey()+"'+\n";
+            for (Map.Entry<String, DescribableModel> entry : ((HeterogeneousObjectType) type).getTypes().entrySet()) {
+                typeInfo += "+"+ DescribableModel.CLAZZ+": '"+entry.getKey()+"'+\n";
                 typeInfo += generateHelp(entry.getValue(), nextHeaderLevel);
             }
-        } else if (type instanceof DescribableHelper.ErrorType) {
-            Exception x = ((DescribableHelper.ErrorType) type).getError();
+        } else if (type instanceof ErrorType) {
+            Exception x = ((ErrorType) type).getError();
             typeInfo += "+"+x+"+\n";
         } else {
             assert false: type;
@@ -217,39 +227,40 @@ public class PipelineStepExtractor {
         return typeInfo;
     }
 
-    private String generateAttrHelp(DescribableHelper.Schema schema, String attr, int headerLevel) throws Exception {
+    private String generateAttrHelp(DescribableParameter param, int headerLevel) throws Exception {
         String attrHelp = "";
-        String help = schema.getHelp(attr);
+        String help = param.getHelp();
         if (help != null && !help.equals("")) {
             //attrHelp += this.helpify(help)
             attrHelp += stripDiv(help) + "\n";
         }
-        DescribableHelper.ParameterType type = schema.parameters().get(attr);
+        ParameterType type = param.getType();
         attrHelp += describeType(type, headerLevel);
         return attrHelp;
     }
 
-    private String generateHelp(DescribableHelper.Schema schema, int headerLevel) throws Exception {
+    private String generateHelp(DescribableModel<?> schema, int headerLevel) throws Exception {
         String total = "";
-        String help = schema.getHelp(null);
+        String help = schema.getHelp();
         if (help != null && !help.equals("")) {
             total += this.helpify(help);
         }
         //dl(class:'help-list mandatory')
-        for (String attr : schema.mandatoryParameters()) {
-            total += "+"+attr+"+"+listDepth(headerLevel)+"\n+\n";
-            total += generateAttrHelp(schema, attr, headerLevel);
-            total += "\n\n";
+        for (DescribableParameter p : schema.getParameters()) {
+            if (p.isRequired()) {
+                total += "+"+p.getName()+"+"+listDepth(headerLevel)+"\n+\n";
+                total += generateAttrHelp(p, headerLevel);
+                total += "\n\n";
+            }
         }
         //dl(class:'help-list optional'){
-        for (String attr : schema.parameters().keySet()) {
-            if (schema.mandatoryParameters().contains(attr)) {
-                continue;
+        for (DescribableParameter p : schema.getParameters()) {
+            if (!p.isRequired()) {
+                //total += "${this.header(headerLevel)} `${attr}` (optional)\n"
+                total += "+"+p.getName()+"+ (optional)"+listDepth(headerLevel)+"\n+\n";
+                total += generateAttrHelp(p, headerLevel);
+                total += "\n\n";
             }
-            //total += "${this.header(headerLevel)} `${attr}` (optional)\n"
-            total += "+"+attr+"+ (optional)"+listDepth(headerLevel)+"\n+\n";
-            total += generateAttrHelp(schema, attr, headerLevel);
-            total += "\n\n";
         }
         return total;
     }
@@ -257,7 +268,7 @@ public class PipelineStepExtractor {
     public String generateStepHelp(StepDescriptor d){
         String mkDesc = header(2)+ "+"+d.getFunctionName()+"+: "+d.getDisplayName()+"\n";
         try{
-            mkDesc += generateHelp(DescribableHelper.schemaFor(d.clazz), 1) +"\n";
+            mkDesc += generateHelp(new DescribableModel(d.clazz), 1) +"\n";
         } catch(Exception ex){
             mkDesc += "+"+ex+"+\n\n";
         } catch(Error err){
