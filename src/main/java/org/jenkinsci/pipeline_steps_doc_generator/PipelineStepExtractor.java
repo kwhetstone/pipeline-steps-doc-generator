@@ -35,6 +35,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Stack;
 import java.util.TreeSet;
 
 /**
@@ -43,6 +44,11 @@ import java.util.TreeSet;
 public class PipelineStepExtractor {
     @Option(name="-homeDir",usage="Root directory of the plugin folder.  This serves as the root directory of the PluginManager.")
     public String homeDir = null;
+
+    /**
+     * Keeps track of nested {@link DescribableModel#getType()} to avoid recursion.
+     */
+    private Stack<Class> nesting = new Stack<>();
 
     public static void main(String[] args){
         PipelineStepExtractor pse = new PipelineStepExtractor();
@@ -240,29 +246,36 @@ public class PipelineStepExtractor {
     }
 
     private String generateHelp(DescribableModel<?> schema, int headerLevel) throws Exception {
-        String total = "";
-        String help = schema.getHelp();
-        if (help != null && !help.equals("")) {
-            total += this.helpify(help);
-        }
-        //dl(class:'help-list mandatory')
-        for (DescribableParameter p : schema.getParameters()) {
-            if (p.isRequired()) {
-                total += "+"+p.getName()+"+"+listDepth(headerLevel)+"\n+\n";
-                total += generateAttrHelp(p, headerLevel);
-                total += "\n\n";
+        if (nesting.contains(schema.getType()))
+            return "";  // if we are recursing, cut the search
+        nesting.push(schema.getType());
+        try {
+            String total = "";
+            String help = schema.getHelp();
+            if (help != null && !help.equals("")) {
+                total += this.helpify(help);
             }
-        }
-        //dl(class:'help-list optional'){
-        for (DescribableParameter p : schema.getParameters()) {
-            if (!p.isRequired()) {
-                //total += "${this.header(headerLevel)} `${attr}` (optional)\n"
-                total += "+"+p.getName()+"+ (optional)"+listDepth(headerLevel)+"\n+\n";
-                total += generateAttrHelp(p, headerLevel);
-                total += "\n\n";
+            //dl(class:'help-list mandatory')
+            for (DescribableParameter p : schema.getParameters()) {
+                if (p.isRequired()) {
+                    total += "+" + p.getName() + "+" + listDepth(headerLevel) + "\n+\n";
+                    total += generateAttrHelp(p, headerLevel);
+                    total += "\n\n";
+                }
             }
+            //dl(class:'help-list optional'){
+            for (DescribableParameter p : schema.getParameters()) {
+                if (!p.isRequired()) {
+                    //total += "${this.header(headerLevel)} `${attr}` (optional)\n"
+                    total += "+" + p.getName() + "+ (optional)" + listDepth(headerLevel) + "\n+\n";
+                    total += generateAttrHelp(p, headerLevel);
+                    total += "\n\n";
+                }
+            }
+            return total;
+        } finally {
+            nesting.pop();
         }
-        return total;
     }
 
     public String generateStepHelp(StepDescriptor d){
