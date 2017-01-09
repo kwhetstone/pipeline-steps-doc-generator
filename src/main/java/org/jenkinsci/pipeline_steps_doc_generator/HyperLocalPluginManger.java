@@ -29,10 +29,6 @@ import org.jvnet.hudson.reactor.*;
 import static hudson.init.InitMilestone.*;
 import static java.util.logging.Level.WARNING;
 
-//might want to just depend on workflow-plugin since we're using it here.
-import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
-import org.jenkinsci.plugins.workflow.structs.DescribableHelper; //this will likely be in a separate class
-
 import java.io.File;
 import java.io.IOException;
 import java.io.Serializable;
@@ -80,7 +76,7 @@ public class HyperLocalPluginManger extends LocalPluginManager{
     }
 
     @Override
-    public ModClassicPluginStrategy getPluginStrategy(){
+    public ModClassicPluginStrategy getPluginStrategy() {
         return strategy;
     }
 
@@ -348,20 +344,48 @@ public class HyperLocalPluginManger extends LocalPluginManager{
      * A PluginStrategy that supports custom classloaders (the UberPlusClassLoader).
      */
     public class ModClassicPluginStrategy extends ClassicPluginStrategy {
-        public ModClassicPluginStrategy(PluginManager pluginManager) {
+        private ClassLoader classLoader;
+
+        public ModClassicPluginStrategy(HyperLocalPluginManger pluginManager) {
             super(pluginManager);
+            classLoader = pluginManager.uberPlusClassLoader;
         }
 
-        public <T> List<T> findComponents(Class<T> type, ClassLoader cl) {
+        public <T> List<ExtensionComponent<T>> findComponents(Class<T> type, Hudson hudson) {
             List<SmallSezpoz> finders = Collections.<SmallSezpoz>singletonList(new SmallSezpoz());
             for (SmallSezpoz finder : finders) {
-                finder.scout(type, cl);
+                finder.scout(type, classLoader);
+            }
+
+            List<ExtensionComponent<T>> r = Lists.newArrayList();
+            for (SmallSezpoz finder : finders) {	
+                try {
+                    r.addAll(finder.find(type, classLoader));
+                } catch (AbstractMethodError e) {
+                    // backward compatibility
+                    //nothing actually happens here...
+                }
+            }
+
+            List<ExtensionComponent<T>> filtered = Lists.newArrayList();
+            for (ExtensionComponent<T> e : r) {
+                if (ExtensionFilter.isAllowed(type, e))
+                    filtered.add(e);
+            }
+
+            return filtered;
+        }
+        
+        public <T> List<T> findComponents(Class<T> type) {
+            List<SmallSezpoz> finders = Collections.<SmallSezpoz>singletonList(new SmallSezpoz());
+            for (SmallSezpoz finder : finders) {
+                finder.scout(type, classLoader);
             }
 
             List<ExtensionComponent<T>> r = Lists.newArrayList();
             for (SmallSezpoz finder : finders) {
                 try {
-                    r.addAll(finder.find(type, cl));
+                    r.addAll(finder.find(type, classLoader));
                 } catch (AbstractMethodError e) {
                     // backward compatibility
                     //nothing actually happens here...
@@ -426,7 +450,7 @@ public class HyperLocalPluginManger extends LocalPluginManager{
         private <T> Collection<ExtensionComponent<T>> _find(Class<T> type, List<IndexItem<Extension,Object>> indices) {
             List<ExtensionComponent<T>> result = new ArrayList<>();
 
-            for (IndexItem<Extension,Object> item : indices) {
+            for (IndexItem<Extension,Object> item : indices) {  
                 try {
                     AnnotatedElement e = item.element();
                     Class<?> extType;
