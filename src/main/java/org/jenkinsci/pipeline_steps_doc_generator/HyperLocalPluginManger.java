@@ -25,6 +25,10 @@ import org.jvnet.hudson.reactor.*;
 
 import static hudson.init.InitMilestone.*;
 
+//might want to just depend on workflow-plugin since we're using it here.
+import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
+import org.jenkinsci.plugins.workflow.structs.DescribableHelper; //this will likely be in a separate class
+
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
@@ -64,7 +68,7 @@ public class HyperLocalPluginManger extends LocalPluginManager{
     }
 
     @Override
-    public ModClassicPluginStrategy getPluginStrategy() {
+    public ModClassicPluginStrategy getPluginStrategy(){
         return strategy;
     }
 
@@ -332,7 +336,6 @@ public class HyperLocalPluginManger extends LocalPluginManager{
 
         public ModClassicPluginStrategy(HyperLocalPluginManger pluginManager) {
             super(pluginManager);
-            classLoader = pluginManager.uberPlusClassLoader;
         }
 
         public <T> List<ExtensionComponent<T>> findComponents(Class<T> type, Hudson hudson) {
@@ -369,7 +372,7 @@ public class HyperLocalPluginManger extends LocalPluginManager{
             List<ExtensionComponent<T>> r = Lists.newArrayList();
             for (SmallSezpoz finder : finders) {
                 try {
-                    r.addAll(finder.find(type, classLoader));
+                    r.addAll(finder.find(type, cl));
                 } catch (AbstractMethodError e) {
                     // backward compatibility
                     //nothing actually happens here...
@@ -444,7 +447,7 @@ public class HyperLocalPluginManger extends LocalPluginManager{
         private <T> Collection<ExtensionComponent<T>> _find(Class<T> type, List<IndexItem<Extension,Object>> indices) {
             List<ExtensionComponent<T>> result = new ArrayList<>();
 
-            for (IndexItem<Extension,Object> item : indices) {  
+            for (IndexItem<Extension,Object> item : indices) {
                 try {
                     AnnotatedElement e = item.element();
                     Class<?> extType;

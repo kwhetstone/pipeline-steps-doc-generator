@@ -51,7 +51,6 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.stream.Stream;
 
-import static org.mockito.Mockito.*;
 
 /**
  * Process and find all the Pipeline steps definied in Jenkins plugins.

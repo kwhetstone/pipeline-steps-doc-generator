@@ -138,8 +138,8 @@ public class ToAsciiDoc {
             return "";  // if we are recursing, cut the search
         nesting.push(model.getType());
 
-        StringBuilder total = new StringBuilder();
         try {
+            StringBuilder total = new StringBuilder();
             String help = model.getHelp();
             if (help != null && !help.equals("")) {
                 total.append(helpify(help));
@@ -150,7 +150,7 @@ public class ToAsciiDoc {
             }
             StringBuilder optionalParams = new StringBuilder();
             //for(DescribableParameter p : model.getParameters()){
-            for(Object o : model.getParameters()) {
+            for(Object o : model.getParameters()){
                 DescribableParameter p = (DescribableParameter) o;
                 if(p.isRequired()) {
                     total
