@@ -1,11 +1,9 @@
 package org.jenkinsci.pipeline_steps_doc_generator;
 
-import hudson.MockJenkins;
 import hudson.init.InitMilestone;
 import hudson.init.InitStrategy;
 import hudson.security.ACL;
 import jenkins.InitReactorRunner;
-import jenkins.model.Jenkins;
 import org.acegisecurity.context.SecurityContextHolder;
 import org.apache.commons.io.FileUtils;
 import org.jenkinsci.plugins.workflow.steps.StepDescriptor;
@@ -28,7 +26,6 @@ import java.util.HashSet;
 import java.util.Set;
 import java.util.TreeSet;
 
-import static org.mockito.Mockito.*;
 
 /**
  * Process and find all the Pipeline steps definied in Jenkins plugins.
@@ -67,21 +64,9 @@ public class PipelineStepExtractor {
             } else {
                 spm = new HyperLocalPluginManger(homeDir, false);
             }
-
-            // Set up mocks
-            Jenkins.JenkinsHolder mockJenkinsHolder = mock(Jenkins.JenkinsHolder.class);
-            MockJenkins mJ = new MockJenkins();
-            Jenkins mockJenkins = mJ.getMockJenkins(spm);
-            when(mockJenkinsHolder.getInstance()).thenReturn(mockJenkins);
-
-            java.lang.reflect.Field jenkinsHolderField = Jenkins.class.getDeclaredField("HOLDER");
-            jenkinsHolderField.setAccessible(true);
-            jenkinsHolderField.set(null, mockJenkinsHolder);
-
             InitStrategy initStrategy = new InitStrategy();
             executeReactor(initStrategy, spm.diagramPlugins(initStrategy));
-            //List<StepDescriptor> steps = spm.getPluginStrategy().findComponents(StepDescriptor.class, spm.uberPlusClassLoader);
-            List<StepDescriptor> steps = spm.getPluginStrategy().findComponents(StepDescriptor.class);
+            List<StepDescriptor> steps = spm.getPluginStrategy().findComponents(StepDescriptor.class, spm.uberPlusClassLoader);
             Map<String, String> stepsToPlugin = spm.uberPlusClassLoader.getByPlugin();
 
             //gather current and depricated steps
@@ -108,7 +93,7 @@ public class PipelineStepExtractor {
         return completeListing;
     }
 
-    private Map<String, List<StepDescriptor>> processSteps(boolean optional, List<StepDescriptor> steps, Map<String, String> stepsToPlugin) {
+    private Map<String, List<StepDescriptor>> processSteps(boolean optional, List<StepDescriptor> steps, Map<String, String> stepsToPlugin){
         Map<String, List<StepDescriptor>> required = new HashMap<String, List<StepDescriptor>>();
         for (StepDescriptor d : getStepDescriptors(optional, steps)) {
             if(stepsToPlugin.get(d.getClass().getName()) != null){
