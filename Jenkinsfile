@@ -1,49 +1,61 @@
-stage "Setup"
+#!/usr/bin/env groovy
 
-  
-stage "Create Plugin Folder"
-  //pull in the plugins, save to ./plugins
-node {
-  def mvntool = tool name: 'Maven 3.3.3', type: 'hudson.tasks.Maven$MavenInstallation' //system dependent
-  def jdktool = tool name: 'Oracle JDK 8u40', type: 'hudson.model.JDK' //system dependent
-  List customEnv = ["PATH+MVN=${mvntool}/bin", "PATH+JDK=${jdktool}/bin", "JAVA_HOME=${jdktool}/", "MAVEN_HOME=${mvntool}"]
-  customEnv.add("MAVEN_OPTS=-Dmaven.repo.local=${pwd()}/.m2_repo")
-  
-  dir('pluginFolder'){
-    def curdir = pwd()
-    echo curdir
-    git changelog: false, poll: false, url:'https://github.com/jenkinsci/backend-extension-indexer.git', branch: 'master'
-    withEnv(customEnv) {
-      sh 'mvn clean install -DskipTests'
+pipeline {
+    agent { label 'maven' }
+    triggers {
+        cron('H H * * 0')
     }
-    sh "java -verbose:gc -jar ./target/*-bin/extension-indexer*.jar -plugins ${curdir}/plugins"
-    stash includes: './plugins/*', name: 'plugins'
-    deleteDir()
-  }
-}
 
-node {
-  def mvntool = tool name: 'Maven 3.3.3', type: 'hudson.tasks.Maven$MavenInstallation' //system dependent
-  def jdktool = tool name: 'Oracle JDK 8u40', type: 'hudson.model.JDK' //systeme dependent
-  List customEnv = ["PATH+MVN=${mvntool}/bin", "PATH+JDK=${jdktool}/bin", "JAVA_HOME=${jdktool}/", "MAVEN_HOME=${mvntool}"]
-  customEnv.add("MAVEN_OPTS=-Dmaven.repo.local=${pwd()}/.m2_repo")
-  
-  stage "Generate Documentation"
-  dir('docFolder'){
-    git changelog: false, poll: false, url: 'https://github.com/kwhetstone/pipeline-steps-doc-generator.git', branch: 'master'
-    withEnv(customEnv) {
-      sh 'mvn clean install -DskipTests'
+    options {
+        timestamps()
     }
-    dir('pluings'){
-        unstash 'plugins'
+
+    stages {
+        stage('Checkout') {
+            steps {
+                deleteDir()
+                checkout scm
+            }
+        }
+
+        stage('Prepare Indexer') {
+            steps {
+                dir('pluginFolder') {
+                    git changelog: false,
+                            poll: false,
+                            url:'https://github.com/jenkinsci/backend-extension-indexer.git',
+                        branch: 'master'
+                    sh 'mvn -s ../settings.xml clean install -DskipTests'
+                }
+            }
+        }
+
+        stage('Run Indexer') {
+            steps {
+                dir('pluginFolder') {
+                    sh 'java -verbose:gc -jar ./target/*-bin/extension-indexer*.jar -plugins ./plugins && mv plugins ..'
+                }
+            }
+        }
+
+        stage('Generate Documentation') {
+            steps {
+                dir('docFolder') {
+                    checkout scm
+                    sh 'mvn -s ../settings.xml clean install -DskipTests'
+                    sh 'mv ../plugins . && java -verbose:gc -javaagent:./contrib/file-leak-detector.jar -jar ./target/*-bin/pipeline-steps-doc-generator*.jar'
+                }
+            }
+        }
+
+        stage('Clean up') {
+            steps {
+                dir('docFolder') {
+                    zip dir: './allAscii', glob: '', zipFile: 'allAscii.zip'
+                    zip dir: './declarative', glob: '', zipFile: 'declarative.zip'
+                    archiveArtifacts artifacts: 'allAscii.zip,declarative.zip', fingerprint: true
+                }
+            }
+        }
     }
-    sh 'java -verbose:gc -jar ./target/*-bin/pipeline-steps-doc-generator*.jar'
-  }
-    
-  stage "Archive and Cleanup"
-  dir('docFolder'){
-    zip dir: './allAscii', glob: '', zipFile: 'allAscii.zip'
-    archive 'allAscii.zip'
-    deleteDir()
-  }
 }
